@@ -169,7 +169,7 @@ services:
                rm -rf /var/lib/postgresql/data/* && 
                pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U \${DB_USER} -v -P -RX"
     ports:
-      - "5433:5432"
+       - "5433:5432"
 ```
 
 ### 4. SQL Скрипты инициализации СУБД
@@ -226,7 +226,7 @@ INSERT INTO books (title, author, price, stock) VALUES
 
 
 <details>
-<summary><b>Шпаргалка по конфигу Docker.</b></summary>
+<summary><b>Шпаргалка по конфигу  и проверка.</b></summary>
 # 🛠️ Подробный технический разбор docker-compose.yml
 
 Ниже приведено детальное описание каждого параметра конфигурации, развернутое понятным языком для начинающих разработчиков и DevOps-инженеров.
