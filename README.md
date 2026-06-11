@@ -87,3 +87,165 @@
 
 -------
 -------
+
+<details>
+<summary><b>Задание 3*.</b></summary>
+
+Выполните настройку выбранных методов шардинга из задания 2.
+
+*Пришлите конфиг Docker и SQL скрипт с командами для базы данных*.
+
+
+### ОТВЕТ:
+
+
+### 🛠️ Структура файлов проекта
+
+Для локального запуска необходимо создать следующую структуру файлов в рабочей директории:
+```text
+├── .env
+├── .gitignore
+├── docker-compose.yml
+├── init-master-users.sql
+└── init-master-catalog.sql
+```
+
+### 1. Безопасность (Файл `.env`)
+Файл для хранения конфиденциальных данных (пароли и логины). **Важно:** данный файл не должен попадать в публичный Git-репозиторий.
+```ini
+DB_USER=admin
+DB_PASSWORD=my_super_secret_password_2026
+```
+
+### 2. Исключения Git (Файл `.gitignore`)
+Указывает Git игнорировать локальные конфигурационные файлы с секретами.
+```text
+.env
+```
+
+### 3. Конфигурация оркестрации (Файл `docker-compose.yml`)
+```yaml
+version: '3.8'
+
+services:
+  # --- ВЕРТИКАЛЬНЫЙ ШАРД 1: ПОЛЬЗОВАТЕЛИ (MASTER) ---
+  users_db_master:
+    image: postgres:15
+    container_name: users_db_master
+    environment:
+      POSTGRES_DB: users_db
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+    volumes:
+      - ./init-master-users.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5431:5432"
+
+  # --- ВЕРТИКАЛЬНЫЙ ШАРД 2: КАТАЛОГ КНИГ (MASTER) ---
+  catalog_db_master:
+    image: postgres:15
+    container_name: catalog_db_master
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+    volumes:
+      - ./init-master-catalog.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  # --- РЕПЛИКА (SLAVE) ДЛЯ ШАРДА КАТАЛОГА ---
+  catalog_db_slave:
+    image: postgres:15
+    container_name: catalog_db_slave
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: \${DB_USER}
+      POSTGRES_PASSWORD: \${DB_PASSWORD}
+    depends_on:
+      - catalog_db_master
+    command: |
+      bash -c "export PGPASSWORD=\${DB_PASSWORD} && 
+               rm -rf /var/lib/postgresql/data/* && 
+               pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U \${DB_USER} -v -P -RX"
+    ports:
+      - "5433:5432"
+```
+
+### 4. SQL Скрипты инициализации СУБД
+
+#### Файл `init-master-users.sql` (БД Пользователей)
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    register_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Наполнение тестовыми данными
+INSERT INTO users (name, email) VALUES 
+('Иван Иванов', 'ivan@example.com'),
+('Анна Петрова', 'anna@example.com');
+```
+
+#### Файл `init-master-catalog.sql` (БД Каталога и настройки репликации)
+```sql
+-- Включение параметров генерации WAL для репликации на мастере
+ALTER SYSTEM SET wal_level = 'replica';
+ALTER SYSTEM SET max_wal_senders = 5;
+
+-- Создание таблиц каталога
+CREATE TABLE shops (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(150) NOT NULL,
+    city VARCHAR(50) NOT NULL,
+    address TEXT
+);
+
+CREATE TABLE books (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    author VARCHAR(150) NOT NULL,
+    price NUMERIC(10, 2),
+    stock INT DEFAULT 0
+);
+
+-- Наполнение тестовыми данными
+INSERT INTO shops (name, city, address) VALUES 
+('Книжный Мир', 'Москва', 'ул. Ленина, д. 10'),
+('Буквоед', 'Санкт-Петербург', 'Невский пр., д. 20');
+
+INSERT INTO books (title, author, price, stock) VALUES 
+('Мастер и Маргарита', 'Михаил Булгаков', 550.00, 15),
+('Преступление и наказание', 'Федор Достоевский', 480.00, 8);
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</details>
