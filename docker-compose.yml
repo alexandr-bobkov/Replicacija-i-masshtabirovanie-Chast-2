@@ -1,0 +1,45 @@
+services:
+  # --- ВЕРТИКАЛЬНЫЙ ШАРД 1: ПОЛЬЗОВАТЕЛИ (MASTER) ---
+  users_db_master:
+    image: postgres:15
+    container_name: users_db_master
+    environment:
+      POSTGRES_DB: users_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./init-master-users.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5431:5432"
+
+  # --- ВЕРТИКАЛЬНЫЙ ШАРД 2: КАТАЛОГ КНИГ (MASTER) ---
+  catalog_db_master:
+    image: postgres:15
+    container_name: catalog_db_master
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./init-master-catalog.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+
+  # --- РЕПЛИКА (SLAVE) ДЛЯ ШАРДА КАТАЛОГА ---
+  catalog_db_slave:
+    image: postgres:15
+    container_name: catalog_db_slave
+    environment:
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    depends_on:
+      - catalog_db_master
+    command: |
+      bash -c "sleep 5 && 
+               export PGPASSWORD=${DB_PASSWORD} && 
+               rm -rf /var/lib/postgresql/data/* && 
+               pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U ${DB_USER} -v -P -R -X stream"
+
+    ports:
+      - "5433:5432"
