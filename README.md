@@ -71,42 +71,8 @@
 
 ### 3. Графическая блок-схема архитектуры
 
-```mermaid
-graph TD
-    classDef app fill:#4f46e5,color:#fff,stroke:#312e81,stroke-width:2px;
-    classDef vert fill:#0ea5e9,color:#fff,stroke:#0369a1,stroke-width:2px;
-    classDef master fill:#10b981,color:#fff,stroke:#047857,stroke-width:2px;
-    classDef slave fill:#f59e0b,color:#fff,stroke:#b45309,stroke-width:2px;
-
-    APP["📱Условное приложение  Приложение "]:::app
-
-    V1["🗂️ Вертикальный Шард 1:<br>Таблица Users"]:::vert
-    V2["🗂️ Вертикальный Шард 2:<br>Таблицы Books & Shops"]:::vert
-
-    M1["🟢 User_Shard_1<br>(Master: Write)"]:::master
-    M2["🟢 User_Shard_2<br>(Master: Write)"]:::master
-    M3["🟢 Catalog_East<br>(Master: Write)"]:::master
-    M4["🟢 Catalog_West<br>(Master: Write)"]:::master
-
-    S1["🟡 User_Shard_1_Slv<br>(Slave: Read-Only)"]:::slave
-    S2["🟡 User_Shard_2_Slv<br>(Slave: Read-Only)"]:::slave
-    S3["🟡 Catalog_East_Slv<br>(Slave: Read-Only)"]:::slave
-    S4["🟡 Catalog_West_Slv<br>(Slave: Read-Only)"]:::slave
-
-    APP -->|"Запросы к профилям"| V1
-    APP -->|"Запросы к каталогу"| V2
-
-    V1 -->|"id % 2 == 0"| M1
-    V1 -->|"id % 2 == 1"| M2
-
-    V2 -->|"Город: Москва"| M3
-    V2 -->|"Город: СПБ"| M4
-
-    M1 -->|"Репликация"| S1
-    M2 -->|"Репликация"| S2
-    M3 -->|"Репликация"| S3
-    M4 -->|"Репликация"| S4
-```
+**Блок схема:**
+![Блок схема](./img/1.jpg)
 
 ### 4. Режимы работы серверов
 *   **Режим Master (Read-Write):** Принимает все модифицирующие запросы (`INSERT`, `UPDATE`, `DELETE`) от приложения. Является первоисточником данных.
