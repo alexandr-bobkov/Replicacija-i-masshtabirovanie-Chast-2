@@ -78,7 +78,7 @@ graph TD
     classDef master fill:#10b981,color:#fff,stroke:#047857,stroke-width:2px;
     classDef slave fill:#f59e0b,color:#fff,stroke:#b45309,stroke-width:2px;
 
-    APP["📱 Приложение / Умный роутер"]:::app
+    APP["📱Условное приложение  Приложение "]:::app
 
     V1["🗂️ Вертикальный Шард 1:<br>Таблица Users"]:::vert
     V2["🗂️ Вертикальный Шард 2:<br>Таблицы Books & Shops"]:::vert
