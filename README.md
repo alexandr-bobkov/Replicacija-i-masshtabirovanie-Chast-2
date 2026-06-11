@@ -125,8 +125,6 @@ DB_PASSWORD=my_super_secret_password_2026
 
 ### 3. Конфигурация оркестрации (Файл `docker-compose.yml`)
 ```yaml
-version: '3.8'
-
 services:
   # --- ВЕРТИКАЛЬНЫЙ ШАРД 1: ПОЛЬЗОВАТЕЛИ (MASTER) ---
   users_db_master:
@@ -134,8 +132,8 @@ services:
     container_name: users_db_master
     environment:
       POSTGRES_DB: users_db
-      POSTGRES_USER: \${DB_USER}
-      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./init-master-users.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
@@ -145,10 +143,14 @@ services:
   catalog_db_master:
     image: postgres:15
     container_name: catalog_db_master
+    # Принудительно включаем уровень логирования WAL для репликации на уровне СУБД
+    command: ["postgres", "-c", "wal_level=replica", "-c", "max_wal_senders=5"]
     environment:
-       POSTGRES_DB: catalog_db
-      POSTGRES_USER: \${DB_USER}
-      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_DB: catalog_db
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      # Разрешаем доверенное подключение внутри изолированной сети Docker для утилиты бэкапа
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - ./init-master-catalog.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
@@ -160,16 +162,20 @@ services:
     container_name: catalog_db_slave
     environment:
       POSTGRES_DB: catalog_db
-      POSTGRES_USER: \${DB_USER}
-      POSTGRES_PASSWORD: \${DB_PASSWORD}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_HOST_AUTH_METHOD: trust
     depends_on:
       - catalog_db_master
+    # Скрипт ждет старта мастера, очищает папку данных, скачивает слепок через раздельные флаги -R и -X stream
+    # и передает управление родному docker-entrypoint.sh для безопасного запуска от имени пользователя postgres
     command: |
-      bash -c "export PGPASSWORD=\${DB_PASSWORD} && 
+      bash -c "sleep 10 && 
                rm -rf /var/lib/postgresql/data/* && 
-               pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U \${DB_USER} -v -P -RX"
+               pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U ${DB_USER} -v -P -R -X stream &&
+               exec docker-entrypoint.sh postgres"
     ports:
-       - "5433:5432"
+      - "5433:5432"
 ```
 
 ### 4. SQL Скрипты инициализации СУБД
@@ -296,9 +302,10 @@ INSERT INTO books (title, author, price, stock) VALUES
 ## Исходный код Bash-скрипта
 ```yaml
 command: |
-  bash -c "export PGPASSWORD=\${DB_PASSWORD} && 
-           rm -rf /var/lib/postgresql/data/* && 
-           pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U \${DB_USER} -v -P -RX"
+   bash -c "sleep 10 && 
+            rm -rf /var/lib/postgresql/data/* && 
+            pg_basebackup -h catalog_db_master -D /var/lib/postgresql/data -U ${DB_USER} -v -P -R -X stream &&
+            exec docker-entrypoint.sh postgres"
 ```
 
 ---
@@ -306,6 +313,7 @@ command: |
 ## Пошаговый разбор команд bash 
 
 ### 1. Оболочка `bash -c "..."`
+*   **`sleep 10`** — приостанавливает запуск реплики на 10 секунд, давая Мастеру время полностью развернуть сетевую структуру.
 *   **Что делает:** Запускает командный интерпретатор Bash (командную строку Linux) внутри контейнера и передает ему на выполнение строку с командами в кавычках.
 *   **Зачем нужно:** По умолчанию контейнер умеет выполнять только одну команду. С помощью `bash -c` мы можем объединить несколько разных команд в одну цепочку.
 
@@ -313,11 +321,9 @@ command: |
 *   **Что делает:** Связывает команды между собой. 
 *   **Зачем нужно:** Символ `&&` гарантирует строгую последовательность: следующая команда запустится **только в том случае**, если предыдущая выполнилась успешно (вернула код 0). Если на каком-то шаге произойдет ошибка, скрипт сразу остановится, не ломая базу дальше.
 
-### 3. Команда `export PGPASSWORD=${DB_PASSWORD}`
-*   **Что делает:** Создает системную переменную окружения `PGPASSWORD` внутри контейнера и записывает в неё пароль из файла `.env`.
-*   **Зачем нужно:** Утилиты PostgreSQL (такие как `pg_basebackup`) по соображениям безопасности не позволяют передавать пароль открытым текстом в виде аргумента (например, нельзя написать `-p password`). Если переменная `PGPASSWORD` существует в системе, утилита автоматически возьмет пароль из неё и **не будет запрашивать ввод пароля вручную в терминале**. Это позволяет скрипту работать полностью автоматически без участия человека.
 
-### 4. Команда `rm -rf /var/lib/postgresql/data/*`
+
+### 3. Команда `rm -rf /var/lib/postgresql/data/*`
 *   **Что делает:** Принудительно и без предупреждения удаляет абсолютно все файлы и папки из рабочей директории базы данных внутри контейнера реплики.
     *   `rm` — команда удаления (remove).
     *   `-r` — рекурсивное удаление (удалять папки вместе со всем содержимым внутри).
@@ -325,7 +331,7 @@ command: |
     *   `/*` — удалить всё содержимое, но оставить саму папку `data` на месте.
 *   **Зачем нужно:** При первом запуске Docker автоматически создает в этой папке пустую структуру базы данных. Однако утилита `pg_basebackup` имеет жесткое правило: **целевая папка для реплики должна быть абсолютно пустой**. Если там будет хоть один файл, процесс репликации завершится ошибкой.
 
-### 5. Команда `pg_basebackup -h catalog_db_master ...`
+### 4. Команда `pg_basebackup -h catalog_db_master ...`
 *   **Что делает:** Запускает процесс низкоуровневого копирования всех файлов базы данных с Мастера на Реплику.
 *   **Разбор флагов (ключей) команды:**
     *   **`-h catalog_db_master`** (Host) — указывает сетевой адрес Мастера. Docker Compose автоматически сопоставляет имя сервиса `catalog_db_master` с нужным IP-адресом внутри сети Docker.
